@@ -582,23 +582,41 @@ render(scope[0],scope[1]);
     style.textContent = '.fresh-ops .fo-line-chart{max-width:100%;margin:12px 0 18px}.fresh-ops .fo-line-chart svg{display:block;width:100%;height:auto;overflow:visible}.fresh-ops .fo-line-chart .fo-axis{stroke:#a9bdc7;stroke-width:1}.fresh-ops .fo-line-chart .fo-series{fill:none;stroke:#087e75;stroke-width:2.5;stroke-linejoin:round}.fresh-ops .fo-line-chart .fo-point{fill:#087e75;stroke:white;stroke-width:2;cursor:pointer}.fresh-ops .fo-line-chart .fo-point:focus{outline:none;stroke:#142b40;stroke-width:3}.fresh-ops .fo-line-chart text{fill:#536778;font-size:20px}.fresh-ops .fo-line-chart output{display:block;min-height:1.7em;margin:.4em 0;color:#142b40}.fresh-ops .fo-line-chart table{border-collapse:collapse;width:100%;margin-top:.5em}.fresh-ops .fo-line-chart th,.fresh-ops .fo-line-chart td{padding:.35em;text-align:start;border-bottom:1px solid #dbe5ed}.fresh-ops .fo-line-chart summary{cursor:pointer}';
     style.textContent += '.fresh-ops .fo-line-chart .fo-line-dates{display:flex;justify-content:space-between;gap:8px;font-size:.8rem;color:#536778;padding:0 3% 0 8%}';
     wrap.append(style);
-    const width = 720, height = 240, left = 60, right = 20, top = 20, bottom = 40;
+    const mobile = window.innerWidth < 600;
+    const width = mobile ? 360 : 720, height = mobile ? 260 : 280, left = 48, right = 18, top = 24, bottom = 32;
+    style.textContent += '.fresh-ops .fo-line-chart text{font-size:12px}.fresh-ops .fo-line-chart .fo-gridline{stroke:#dbe5ed;stroke-dasharray:3 4}.fresh-ops .fo-line-chart .fo-point{stroke-width:1.5}.fresh-ops .fo-line-chart output{font-size:.88rem}.fresh-ops .fo-source-notes{margin:12px 0;color:#536778;font-size:.86rem}.fresh-ops .fo-source-notes summary{cursor:pointer}.fresh-ops .fo-line-chart table{font-size:.8rem}';
+    const explanation = list.previousElementSibling;
+    if (explanation && explanation.tagName === 'P') explanation.textContent = 'التوصيلات المكتملة لكل يوم · الأيام بلا بيانات تبقى فجوات، وليست صفراً.';
     const values = rows.filter(r => r.value !== null).map(r => r.value);
-    const min = Math.min(0, ...values), max = Math.max(0, ...values), span = max - min || 1;
+    const min = Math.min(0, ...values), observedMax = Math.max(0, ...values);
+    const step = observedMax > 0 ? Math.pow(10, Math.floor(Math.log10(observedMax))) : 1;
+    const max = observedMax > 0 ? Math.ceil(observedMax / step) * step : 0, span = max - min || 1;
     const firstDay = Math.min(...rows.map(r => r.day)), lastDay = Math.max(...rows.map(r => r.day));
     const x = r => left + (lastDay === firstDay ? (width - left - right) / 2 : (r.day - firstDay) / (lastDay - firstDay) * (width - left - right));
     const y = v => max === min ? height - bottom : top + (max - v) / span * (height - top - bottom);
     const svg = svgNode('svg', {viewBox: `0 0 ${width} ${height}`, role: 'group', 'aria-label': 'اتجاه التوصيلات المكتملة يومياً؛ الفجوات تعني عدم توفر البيانات'});
     svg.append(svgNode('line', {x1: left, x2: width - right, y1: y(0), y2: y(0), class: 'fo-axis'}));
     svg.append(svgNode('text', {x: left - 8, y: y(0) + 4, 'text-anchor': 'end', direction: 'ltr'}, '0'));
-    if (max !== 0) svg.append(svgNode('text', {x: left - 8, y: top + 4, 'text-anchor': 'end', direction: 'ltr'}, String(max)));
+    if (max !== 0) for (let i = 1; i <= 4; i++) {
+      const tick = max * i / 4;
+      svg.append(svgNode('line', {x1:left, x2:width-right, y1:y(tick), y2:y(tick), class:'fo-gridline'}));
+      svg.append(svgNode('text', {x:left-8, y:y(tick)+4, 'text-anchor':'end', direction:'ltr'}, new Intl.NumberFormat('en-US',{maximumFractionDigits:1}).format(tick)));
+    }
     if (min !== 0) svg.append(svgNode('text', {x: left - 8, y: height - bottom + 4, 'text-anchor': 'end', direction: 'ltr'}, String(min)));
     const dates = document.createElement('div'); dates.className = 'fo-line-dates'; dates.dir = 'ltr';
     for (const date of [rows.reduce((a, b) => a.day < b.day ? a : b).date, ...(lastDay !== firstDay ? [rows.reduce((a, b) => a.day > b.day ? a : b).date] : [])]) {
       const label = document.createElement('span'); label.textContent = date; dates.append(label);
     }
     const status = document.createElement('output'); status.setAttribute('aria-live', 'polite');
-    status.textContent = values.length ? 'اختر نقطة لعرض التاريخ والقيمة والتغطية؛ التفاصيل الكاملة في الجدول.' : 'لا تتوفر قيم يومية للرسم في هذه الفترة؛ التفاصيل في الجدول.';
+    status.textContent = values.length ? 'مرّر أو اضغط على الرسم لعرض قيمة اليوم.' : 'لا تتوفر قيم يومية للرسم في هذه الفترة؛ التفاصيل في الجدول.';
+    function showRow(row) { status.textContent = `${row.date} · المكتمل: ${row.raw} · قيم متاحة / سجلات: ${row.coverage || '—'}`; }
+    function nearest(event) {
+      const rect=svg.getBoundingClientRect(), px=(event.clientX-rect.left)/rect.width*width;
+      const row=rows.reduce((best,r)=>Math.abs(x(r)-px)<Math.abs(x(best)-px)?r:best,rows[0]);
+      showRow(row);
+    }
+    svg.addEventListener('pointermove',nearest);
+    svg.addEventListener('click',nearest);
     let segment = [];
     function flush() {
       if (segment.length > 1) svg.append(svgNode('polyline', {class: 'fo-series', points: segment.map(r => `${x(r)},${y(r.value)}`).join(' ')}));
@@ -614,7 +632,7 @@ render(scope[0],scope[1]);
     for (const row of rows) {
       if (row.value === null) continue;
       const label = `${row.date} · ${row.raw} · قيم متاحة / سجلات: ${row.coverage || '—'}`;
-      const point = svgNode('circle', {cx: x(row), cy: y(row.value), r: 5, class: 'fo-point', tabindex: 0, role: 'button', 'aria-label': label});
+      const point = svgNode('circle', {cx: x(row), cy: y(row.value), r: mobile ? 3 : 4, class: 'fo-point', tabindex: 0, role: 'button', 'aria-label': label});
       point.append(svgNode('title', {}, label));
       const show = () => { status.textContent = label; };
       point.addEventListener('click', show); point.addEventListener('focus', show);
@@ -638,7 +656,19 @@ render(scope[0],scope[1]);
     table.append(body); details.append(table); wrap.append(details);
     list.before(wrap); list.hidden = true; list.style.display = 'none'; list.dataset.lineChart = 'ready';
   }
-  function render() { document.querySelectorAll('.fresh-ops .fo-chart').forEach(enhance); }
+  function render() {
+    document.querySelectorAll('.fresh-ops .fo-chart').forEach(enhance);
+    document.querySelectorAll('.fresh-ops').forEach(section => {
+      if (section.querySelector('.fo-source-notes')) return;
+      const notes=document.createElement('details');notes.className='fo-source-notes';
+      const summary=document.createElement('summary');summary.textContent='تغطية البيانات وطريقة الحساب';notes.append(summary);
+      const paragraphs=Array.from(section.children).filter(el=>el.tagName==='P');
+      const first=paragraphs[0];
+      if(first){const scope=document.createElement('p');scope.className='fo-visible-scope';scope.textContent=first.textContent.split(' · ')[0];first.before(scope);notes.append(first);}
+      paragraphs.slice(2).forEach(p=>notes.append(p));
+      if (notes.children.length > 1) section.append(notes);
+    });
+  }
   document.addEventListener('change', event => { if (event.target && event.target.id === 'globalPeriod') render(); });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render, {once: true}); else render();
 })();
